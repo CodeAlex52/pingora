@@ -157,4 +157,40 @@ mod tests_stream {
             ],
         );
     }
+
+    // Regression tests: the compressor must emit a COMPLETE brotli stream —
+    // including the final ISLAST meta-block — that a strict one-shot decoder
+    // accepts. A stream whose pending output was only flushed is an
+    // incomplete prefix and is rejected by strict decoders with an
+    // unexpected-EOF error.
+    fn assert_strict_roundtrip(encoded: &[u8], expected: &[u8]) {
+        let mut decoded = Vec::new();
+        brotli::BrotliDecompress(&mut &encoded[..], &mut decoded)
+            .expect("strict decoder must accept the stream as complete");
+        assert_eq!(&decoded[..], expected);
+    }
+
+    #[test]
+    fn compress_brotli_single_chunk_strict_roundtrip() {
+        let mut compressor = Compressor::new(5);
+        let compressed = compressor.encode(b"hello world", true).unwrap();
+        assert_strict_roundtrip(&compressed, b"hello world");
+    }
+
+    #[test]
+    fn compress_brotli_multi_chunk_strict_roundtrip() {
+        let mut compressor = Compressor::new(5);
+        let mut encoded = Vec::new();
+        encoded.extend_from_slice(compressor.encode(b"hello ", false).unwrap().as_ref());
+        encoded.extend_from_slice(compressor.encode(b"world", false).unwrap().as_ref());
+        encoded.extend_from_slice(compressor.encode(b"", true).unwrap().as_ref());
+        assert_strict_roundtrip(&encoded, b"hello world");
+    }
+
+    #[test]
+    fn compress_brotli_empty_body_strict_roundtrip() {
+        let mut compressor = Compressor::new(5);
+        let compressed = compressor.encode(b"", true).unwrap();
+        assert_strict_roundtrip(&compressed, b"");
+    }
 }
